@@ -1,0 +1,82 @@
+#include "BluetoothSerial.h"
+
+String device_name = "ESP32-BT-Slave";
+#define RESISTOR 20000      // Value of the known resistor in ohms
+#define RUBBERCORDPIN 4     // Pin where the rubber cord is connected
+#define VIN 3.3             // The input voltage (typically 3.3V for ESP32)
+
+double value = 0;
+double force = 0;
+double len = 0;
+double resis = 0;
+
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run make menuconfig to enable it
+#endif
+
+#if !defined(CONFIG_BT_SPP_ENABLED)
+#error Serial Bluetooth not available or not enabled. It is only available for the ESP32 chip.
+#endif
+
+BluetoothSerial SerialBT;
+
+void setup() {
+  SerialBT.begin("Tynor"); // Bluetooth device name
+  Serial.printf("The device with name \"%s\" is started.\nNow you can pair it with Bluetooth!\n", device_name.c_str());
+  Serial.begin(9600);
+
+  #ifdef USE_PIN
+    SerialBT.setPin(pin);
+    Serial.println("Using PIN");
+  #endif
+}
+
+void loop() {
+  int raw = analogRead(RUBBERCORDPIN); // Read the analog value from the pin
+  float vout = (VIN * raw) / 4095.0;   // Convert the raw value to voltage (4095 for 12-bit ADC)
+  float buffer = (VIN / vout) - 1;
+  float refresistor2 = (RESISTOR / buffer); // Calculate the resistance of the rubber cord
+
+  // Calculate the resistance of the rubber cord in ohms
+  resis = refresistor2 / 1000;
+
+  //Calculate the length of Rubber 
+  //len = -3.8608e-13 * x^3 + 4.28e-12 * x^2 + 133.3333 * x^1 + -400
+  len = 0.0026708 * pow(resis, 3) + (-0.045172) * pow(resis, 2) + 55.143 * resis + (-156.85);
+
+  //Calculate the force apply on fabric 
+  // force = 3.3938e-06 * x^3 + -0.00081049 * x^2 + 0.084154 * x^1 + 0.53115
+   force = 3.3938e-06 * pow(len, 3) - 0.00081049 * pow(len, 2) + 0.084154 * len + 0.53115;
+
+  // Print the results to the Serial Monitor
+  Serial.print("Voltage: ");
+  Serial.print(vout);
+  Serial.println(" V");
+
+  Serial.print("Resistance: ");
+  Serial.print(resis);
+  Serial.println(" kΩ");
+
+  Serial.print("Force: ");
+  Serial.print(force);
+  Serial.println(" kg");
+  
+  Serial.print("Elongation: ");
+  Serial.print(len);
+  Serial.println(" mm");
+  Serial.println(" ");
+
+
+  // Send the results to the Bluetooth terminal app
+  SerialBT.print("Voltage:" + String(vout) + "V, Resistance:" + String(resis) + "kΩ, Force:" + String(force) + "kg, Elongation:" + String(len) + "mm\n");
+
+  delay(2000); // Delay for 2 seconds
+
+  // Check for incoming data from serial monitor and Bluetooth
+  if (Serial.available()) {
+    SerialBT.write(Serial.read());
+  }
+  if (SerialBT.available()) {
+    Serial.write(SerialBT.read());
+  }
+}
